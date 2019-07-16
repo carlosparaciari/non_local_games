@@ -1,6 +1,7 @@
 import lib_non_local_games as nlg
 import numpy as np
 import cvxpy as cp
+import os
 import functools as fc
 from operator import mul
 
@@ -69,6 +70,18 @@ indices_AAQQ1_AQQ2 = nlg.indices_list(subs_AAQQ1_AQQ2)
 # Subsystems A2 Q2
 subs_AQ2 = (dimA2,dimQ2)
 indices_AQ2 = nlg.indices_list(subs_AQ2)
+
+# Subsystems A1 Q1 A2 Q2
+subs_AQ1AQ2 = (dimA1,dimQ1,dimA2,dimQ2)
+indices_AQ1AQ2 = nlg.indices_list(subs_AQ1AQ2)
+
+# Subsystems T(1)* T(2)*
+subs_TT = (dimT,dimT)
+dim_TT = fc.reduce(mul, subs_TT, 1)
+
+# Subsystems T(1)1 T(1)2 S1 S2
+subs_TT_SS = (dimT,dimT,dimS,dimS)
+dim_TT_SS = fc.reduce(mul, subs_TT_SS, 1)
 
 # State on subsystem T
 rhoT = np.identity(dimT)/dimT
@@ -177,8 +190,8 @@ for a1,aa1,q1,qq1,aa2,q2,qq2 in indices_AAQQ1_AQQ2:
 # 5) PPT criterium
 for i in map(nlg.binarytoint,indices_AAQQ1_AAQQ2):
     constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,0,0,1,1)) >> 0 )
-    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(1,1,0,0,0,0)) >> 0 )
-    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,1,1,0,0)) >> 0 )
+#    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(1,1,0,0,0,0)) >> 0 )
+#    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,1,1,0,0)) >> 0 )
 
 ## PROBLEM
 
@@ -186,4 +199,27 @@ for i in map(nlg.binarytoint,indices_AAQQ1_AAQQ2):
 prob = cp.Problem(cp.Maximize(object_function), constraints)
 
 # Solve the problem
-#prob.solve(verbose=True,solver='MOSEK')
+optimal_value = prob.solve(verbose=True,solver='MOSEK')
+
+# Print the optimal value
+print(optimal_value)
+
+## OPTIMAL RHO
+
+# Create folder if it does not exist
+os.makedirs("./optimal_rho", exist_ok=True)
+
+# The permutation takes [T(1)1 T(2)1] [T(1)2 T(2)2] S1 S2 to [T(2)1 T(2)2] [T(1)1 T(1)2] S1 S2
+P = cp.Constant(nlg.permutation_matrix((0,1,2,3,4,5), (1,3,0,2,4,5), subs_TT1_TT2_SS))
+
+for a1,q1,a2,q2 in indices_AQ1AQ2:
+    indices_a1q1a2q2 = [nlg.binarytoint([a1,aa1,q1,qq1,a2,aa2,q2,qq2])
+    					for aa1,qq1,aa2,qq2 in indices_AQ1AQ2]
+    
+    rho_variable = sum([rho_TTTTSS[i] for i in indices_a1q1a2q2])
+    rho_permuted = cp.matmul(cp.matmul(P,rho_variable),P)
+    rho_TTSS = nlg.partial_trace(rho_permuted, [dim_TT, dim_TT_SS])
+    
+    np.save('./optimal_rho/rho_a1_{}_q1_{}_a2_{}_q2_{}.npy'.format(a1,q1,a2,q2),
+    	    np.array(rho_TTSS.value)
+    	   )
