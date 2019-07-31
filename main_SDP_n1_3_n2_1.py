@@ -39,7 +39,7 @@ probQ2 = (.5,.5)
 
 ### CHSH game n_1 = 3 and n_2 = 1
 
-# Subsystems A(1)1 A(2)1 A(3)1 Q(1)1 Q(2)1 Q(3)1 A2  Q2 
+# Subsystems A(1)1 A(2)1 A(3)1 Q(1)1 Q(2)1 Q(3)1 A2 Q2 
 subs_AAAQQQ1_AQ2 = (dimA1,dimA1,dimA1,dimQ1,dimQ1,dimQ1,dimA2,dimQ2)
 indices_AAAQQQ1_AQ2 = nlg.indices_list(subs_AAAQQQ1_AQ2)
 
@@ -55,17 +55,17 @@ dim_TTT1_T2_SS = fc.reduce(mul, subs_TTT1_T2_SS, 1)
 subs_TTT_SS = (dimT,dimT,dimT,dimS,dimS)
 dim_TTT_SS = fc.reduce(mul, subs_TTT_SS, 1)
 
-# Subsystems A(2)1 Q(1)1 Q(2)1 A(1)2 A(2)2 Q(1)2 Q(2)2
+# Subsystems A(1)1 A(2)1 A(3)1 Q(1)1 Q(2)1 Q(3)1 Q2 
+subs_AAAQQQ1_Q2 = (dimA1,dimA1,dimA1,dimQ1,dimQ1,dimQ1,dimQ2)
+indices_AAAQQQ1_Q2 = nlg.indices_list(subs_AAAQQQ1_Q2)
+
+# Subsystems A(2)1 A(3)1 Q(1)1 Q(2)1 Q(3)1 A2 Q2
 subs_AAQQQ1_AQ2 = (dimA1,dimA1,dimQ1,dimQ1,dimQ1,dimA2,dimQ2)
 indices_AAQQQ1_AQ2 = nlg.indices_list(subs_AAQQQ1_AQ2)
 
 # Subsystems A1 Q1
 subs_AQ1 = (dimA1,dimQ1)
 indices_AQ1 = nlg.indices_list(subs_AQ1)
-
-# Subsystems A(1)1 A(2)1 Q(1)1 Q(2)1 A(2)2 Q(1)2 Q(2)2
-subs_AAQQ1_AQQ2 = (dimA1,dimA1,dimQ1,dimQ1,dimA2,dimQ2,dimQ2)
-indices_AAQQ1_AQQ2 = nlg.indices_list(subs_AAQQ1_AQQ2)
 
 # Subsystems A2 Q2
 subs_AQ2 = (dimA2,dimQ2)
