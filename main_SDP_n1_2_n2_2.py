@@ -191,7 +191,7 @@ for a1,aa1,q1,qq1,aa2,q2,qq2 in indices_AAQQ1_AQQ2:
 for i in map(nlg.binarytoint,indices_AAQQ1_AAQQ2):
     constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,0,0,1,1)) >> 0 )
 #    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(1,1,0,0,0,0)) >> 0 )
-#    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,1,1,0,0)) >> 0 )
+    constraints.append( nlg.partial_transpose(rho_TTTTSS[i],subs_TT1_TT2_SS,(0,0,1,1,0,0)) >> 0 )
 
 ## PROBLEM
 
