@@ -16,6 +16,10 @@ def basis(dim):
 def tensor(array_list):
     return fc.reduce(lambda x,y : np.kron(x,y),array_list)
 
+# This function returns the unnormalized bipartite maximally entangled state of dimension dim.
+def bipartite_unnorm_max_entangled_state(dim):
+	return sum([tensor([v,v]) for v in basis(dim)])
+
 # This function returs the list of indices for a tuple of subsystem of given dimension
 #
 # NOTE: the output list is **not** ordered.
