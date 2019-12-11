@@ -77,6 +77,12 @@ def permutation_matrix(initial_order,final_order,dimension_subsystems):
 def binarytoint(binary_list,base=2):
     return np.sum([i*base**n for n,i in enumerate(reversed(binary_list))])
 
+# This function maps a list (not necessary binary, each element can have different alphabet) into an integer
+def seqtoint(sequence,dimension):
+    for n,d in enumerate(dimension[1:]):
+        sequence =[d*element for element in sequence[:n+1]] + list(sequence[n+1:])
+    return sum(sequence)
+
 # This function maps the cvx expression into a numpy array (0-1-2D)
 #
 # NOTE: This is going to be the part which slows down partial trace (due to double for loop)
