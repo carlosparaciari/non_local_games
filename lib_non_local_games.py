@@ -292,15 +292,15 @@ def classical_constraints(constraints,subs_A1Q1,subs_A2Q2,probQ1,probQ2,level=1)
         for index_A2Q2_ext in indices_A2Q2_extended:
             index_A1Q1A2Q2_ext = np.append(index_A1Q1,index_A2Q2_ext)
 
-            # Create all possible permutations (of the blocks A2Q2)
+            # Create all possible permutations (of the blocks A2Q2) - MAYBE THIS PART CAN BE STREAMLINED OR AT LEAST MADE CLEARER
             block_shape = (int(index_A2Q2_ext.size/2),2)
-            index_A2Q2_block = np.reshape(index_A2Q2_ext,block_shape)
-            indices_A2Q2_block = permutations(index_A2Q2_block)
+            index_A2Q2_block = np.reshape(index_A2Q2_ext,block_shape).tolist()
+            permutation_list = list(permutations(index_A2Q2_block))
+            permutation_array = np.array(permutation_list)
+            unblock_shape = (permutation_array.shape[0],permutation_array.shape[1]*permutation_array.shape[2])
+            indices_A2Q2_perm = np.unique(np.reshape(permutation_array,unblock_shape),axis=0)
 
-            for index_A2Q2_block in indices_A2Q2_block:
-
-                #Reshape back the A2Q2_ext from blocks to single array
-                index_A2Q2_perm = np.reshape(index_A2Q2_block,index_A2Q2_ext.shape)
+            for index_A2Q2_perm in indices_A2Q2_perm:
 
                 if (index_A2Q2_perm == index_A2Q2_ext).all():
                     continue
