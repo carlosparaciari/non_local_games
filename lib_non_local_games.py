@@ -2,6 +2,8 @@ import numpy as np
 import cvxpy as cp
 from cvxpy.expressions.expression import Expression
 import functools as fc
+from operator import mul
+from itertools import permutations
 
 # This function returns the computational basis of an Hilbert space with given dimension dim.
 def basis(dim):
@@ -16,6 +18,39 @@ def basis(dim):
 def tensor(array_list):
     return fc.reduce(lambda x,y : np.kron(x,y),array_list)
 
+# This function fuses two arrays of arrays
+#
+# E.g. Given two vectors
+#    
+#     v = [[1,2],
+#          [3,4],
+#          [5,6]]
+#    
+#     w = [[7,8,9],
+#          [10,11,12]]
+#    
+#     we get
+#    
+#     output = [[1,2,7,8,9],
+#               [1,2,10,11,12],
+#               [3,4,7,8,9],
+#               [3,4,10,11,12],
+#               [5,6,7,8,9],
+#               [5,6,10,11,12]]
+def fuse_arrays(v,w):
+    
+    if w.size != 0:
+        fused_vw = np.empty((0,v.shape[1]+w.shape[1]))
+        broadcast_shape = (w.shape[0],v.shape[1])
+
+        for subv in v:
+            broad_suv = np.broadcast_to(subv,broadcast_shape)
+            fused_vw = np.vstack((fused_vw,np.hstack((broad_suv,w))))
+
+        return fused_vw
+    else:
+        return v
+
 # This function returns the unnormalized bipartite maximally entangled state of dimension dim.
 def bipartite_unnorm_max_entangled_state(dim):
 	return sum([tensor([v,v]) for v in basis(dim)])
@@ -25,9 +60,12 @@ def bipartite_unnorm_max_entangled_state(dim):
 # NOTE: the output list is **not** ordered.
 #
 def indices_list(dimension_tuple):
-    subindices = [range(dim) for dim in dimension_tuple]
     number_subsystems = len(dimension_tuple)
-    return np.array(np.meshgrid(*subindices)).T.reshape(-1,number_subsystems)
+    if number_subsystems != 0:
+        subindices = [range(dim) for dim in dimension_tuple]
+        return np.array(np.meshgrid(*subindices)).T.reshape(-1,number_subsystems)
+    else:
+        return np.array([])
 
 # This function produces the permutation matrix for a given permutation of n subsystems of given dimensions
 #
@@ -81,7 +119,7 @@ def binarytoint(binary_list,base=2):
 def seqtoint(sequence,dimension):
     for n,d in enumerate(dimension[1:]):
         sequence =[d*element for element in sequence[:n+1]] + list(sequence[n+1:])
-    return sum(sequence)
+    return int(sum(sequence))
 
 # This function maps the cvx expression into a numpy array (0-1-2D)
 #
@@ -208,3 +246,92 @@ def rule_matrix(dimensionAQ, rule_function):
             V += np.outer(basis_vector,basis_vector)
             
     return V
+
+# This function returns the n-th level of the classical hierarchy
+#
+# INPUT:
+#        - constraints : list where we can append constraints
+#        - subs_A1Q1 : tuple of dimension of A1 and Q1
+#        - subs_A2Q2 : tuple of dimension of A2 and Q2
+#        - probQ1 : tuple with the probability distribution of Q1
+#        - probQ2 : tuple with the probability distribution of Q2
+#        - level : the level of the hierarchy
+#
+# OUTPUT:
+#        - classical_prob : variable representing the classical probability distribution
+#        - BtI_ext : function for mapping from extended indices to integers
+#
+def classical_constraints(constraints,subs_A1Q1,subs_A2Q2,probQ1,probQ2,level=1):
+
+    # Compute the dimension of the new variable
+    dimA1, dimQ1 = subs_A1Q1
+    dimA2, dimQ2 = subs_A2Q2
+    dim_A1Q1 = fc.reduce(mul, subs_A1Q1, 1)
+    dim_A2Q2 = fc.reduce(mul, subs_A2Q2, 1)
+    dim_tot = dim_A1Q1*dim_A2Q2**level
+
+    # Create the indices lists we need
+    indices_A1Q1 = indices_list(subs_A1Q1)
+    indices_A2Q2 = indices_list(subs_A2Q2)
+    indices_A2Q2_extended = indices_list(subs_A2Q2*level)
+    indices_A2Q2_ext_butone = indices_list(subs_A2Q2*(level-1))
+
+    # Bit string to integer function for extended distribution
+    BtI_ext = lambda seq : seqtoint(seq, subs_A1Q1+subs_A2Q2*level)
+
+    # Create the classical variable (with non-negative entries)
+    classical_prob = cp.Variable(dim_tot,nonneg=True)
+
+    # Classical constraints for the given level of the hierarchy
+
+    # i) The distribution is a proper probability distribution (elements adds up to 1)
+    constraints.append( cp.sum(classical_prob) - 1 == 0 )
+
+    # ii) Permutation invariance of A2Q2^level (the constraints we get here can be redundant)
+    for index_A1Q1 in indices_A1Q1:
+        for index_A2Q2_ext in indices_A2Q2_extended:
+            index_A1Q1A2Q2_ext = np.append(index_A1Q1,index_A2Q2_ext)
+
+            # Create all possible permutations (of the blocks A2Q2)
+            block_shape = (int(index_A2Q2_ext.size/2),2)
+            index_A2Q2_block = np.reshape(index_A2Q2_ext,block_shape)
+            indices_A2Q2_block = permutations(index_A2Q2_block)
+
+            for index_A2Q2_block in indices_A2Q2_block:
+
+                #Reshape back the A2Q2_ext from blocks to single array
+                index_A2Q2_perm = np.reshape(index_A2Q2_block,index_A2Q2_ext.shape)
+
+                if (index_A2Q2_perm == index_A2Q2_ext).all():
+                    continue
+                else:
+                    index_A1Q1A2Q2_perm = np.append(index_A1Q1,index_A2Q2_perm)
+                    rhs = classical_prob[BtI_ext(index_A1Q1A2Q2_ext)]
+                    lhs = classical_prob[BtI_ext(index_A1Q1A2Q2_perm)]
+                    constraints.append( rhs - lhs == 0 )
+
+    # iii) Non-signalling A
+    for q1 in range(dimQ1):
+        for index_A2Q2_ext in indices_A2Q2_extended:
+            indices_A1q1a2q2_ext = [np.append(np.array([a,q1]),index_A2Q2_ext) for a in range(dimA1)]
+            indices_A1Q1a2q2_ext = [np.append(index_A1Q1,index_A2Q2_ext) for index_A1Q1 in indices_A1Q1]
+
+            rhs = sum([classical_prob[BtI_ext(i)] for i in indices_A1q1a2q2_ext])
+            lhs = probQ1[q1] * sum([classical_prob[BtI_ext(i)] for i in indices_A1Q1a2q2_ext])
+
+            constraints.append( rhs - lhs == 0 )
+
+    # iv) Non-signalling B
+    indices_A1Q1A2Q2_ext_butone = fuse_arrays(indices_A1Q1,indices_A2Q2_ext_butone)
+
+    for q2 in range(dimQ2):
+        for index_A1Q1A2Q2_ext_butone in indices_A1Q1A2Q2_ext_butone:
+            indices_a1q1A2q2_ext = [np.append(index_A1Q1A2Q2_ext_butone,np.array([a,q2])) for a in range(dimA2)]
+            indices_a1q1A2Q2_ext = [np.append(index_A1Q1A2Q2_ext_butone,index_A2Q2) for index_A2Q2 in indices_A2Q2]
+
+            rhs = sum([classical_prob[BtI_ext(i)] for i in indices_a1q1A2q2_ext])
+            lhs = probQ2[q2] * sum([classical_prob[BtI_ext(i)] for i in indices_a1q1A2Q2_ext])
+
+            constraints.append( rhs - lhs == 0 )
+    
+    return classical_prob, BtI_ext
