@@ -221,6 +221,33 @@ def CHSH_rule_function_A1Q1A2Q2(a1,q1,a2,q2):
     rule = (a1+a2)%2 == (q1 and q2)
     return rule
 
+# Produce random distribution for questions
+def random_question_distribution(dim_question):
+    unnorm_dist = np.random.rand(dim_question)
+    norm = np.sum(unnorm_dist)
+    return unnorm_dist/norm
+
+# This function generates a random rule function and outputs it (together with the diagonal of the rule matrix)
+def generate_random_rule_function_A1Q1A2Q2(subs_A1Q1A2Q2):
+    
+    dim_A1Q1A2Q2 = fc.reduce(mul, subs_A1Q1A2Q2, 1)
+    V = np.random.randint(0, high=2, size=dim_A1Q1A2Q2)
+    
+    def random_rule_function_A1Q1A2Q2(a1,a2,q1,q2):
+        rule = V[seqtoint((a1,a2,q1,q2),subs_A1Q1A2Q2)] == 1
+        return rule
+    
+    return random_rule_function_A1Q1A2Q2, V
+
+# Create rule function from list of values
+def generate_rule_function_from_array(V,subs_A1Q1A2Q2):
+    
+    def rule_function_A1Q1A2Q2(a1,a2,q1,q2):
+        rule = V[seqtoint((a1,a2,q1,q2),subs_A1Q1A2Q2)] == 1
+        return rule
+    
+    return rule_function_A1Q1A2Q2
+
 # This function implements the rule matrix from a rule function
 #
 # Inputs:
