@@ -325,6 +325,45 @@ def rule_matrix(dimensionAQ, rule_function):
             
     return V
 
+# This function creates PPT constraints along all the following cuts T_1 | ... | T_n1 | T_1 | ...| T_n2 | SS
+#
+#    INPUT:
+#           - rho_variable : the variable to partial transpose
+#           - constraints : the vecor where we add the constraints
+#           - n1 : extension for T
+#           - n2: extension for \hat{T}
+#           - subsystems: the subsystems described by the variable
+#
+#    OUTPUT:
+#           - PT_list: list of PT positions (mainly for testing reasons).
+#
+def PPT_constraints(rho_variable,constraints,n1,n2,subsystems):
+    num_subs = n1+n2+2
+
+    # Create tuple of choices (0=no-PT and 1=PT), one for each subsystem
+    PT_dim = (2,)*(n1+n2+1)
+
+    # Create all possible combinations of PT and no-PT allowed by the cuts
+    PT_list = np.array([np.concatenate((item[:-1],np.full(2,item[-1]))) for item in indices_list(PT_dim)])
+
+    # Remove trivial cases (all 0's and all 1's)
+    num_subs = n1+n2+2
+    bool_trivial = np.sum(PT_list,axis=1) % num_subs != 0
+    PT_list = PT_list[bool_trivial]
+
+    # Remove double cases and add PPT constraints
+    final_PT_list = []
+
+    for PT in PT_list:
+        opposite_PT = (PT + 1) % 2
+        PT_is_in = np.any([np.all(item == PT) or np.all(item == opposite_PT) for item in final_PT_list])
+        if not PT_is_in:
+            final_PT_list.append(PT) # We use this to decide whether to add new constraints or not
+            PPT_constr = partial_transpose(rho_variable,subsystems,PT) >> 0
+            constraints.append(PPT_constr)
+            
+    return final_PT_list
+    
 # This function returns the n-th level of the classical hierarchy
 #
 # INPUT:
