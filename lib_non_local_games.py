@@ -328,6 +328,24 @@ def rule_matrix(dimensionAQ, rule_function):
             
     return V
 
+# This function reorders the index in the following way
+#
+# From (A1Q1)_1 ... (A1Q1)_n1 (A2Q2)_1 ... (A2Q2)_n2
+# To   (A1_1 ... A1_n1)(Q1_1 ... Q1_n1)(A2_1 ... A2_n2)(Q2_1 ... Q2_n2)
+#
+#    INPUT:
+#          - index: the numpy array with the index
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#
+def reorder_index(index,n1,n2):
+    indexA1 = index[0:2*n1-1:2]
+    indexQ1 = index[1:2*n1:2]
+    indexA2 = index[2*n1:2*(n1+n2)-1:2]
+    indexQ2 = index[2*n1+1:2*(n1+n2):2]
+
+    return np.concatenate((indexA1,indexQ1,indexA2,indexQ2))
+
 # This function implements the linear constraint for Alice side
 #
 #    INPUT:
@@ -363,9 +381,9 @@ def linear_constraint_Alice(rho_variable,probQ1,constraints,n1,n2,subs_A1Q1,subs
             indices_A1q1a2q2_ext = [np.append(np.array([a1,q1]),index_else) for a1 in range(dimA1)]
             indices_A1Q1a2q2_ext = [np.append(index_A1Q1,index_else) for index_A1Q1 in indices_A1Q1]
 
-            lhs = sum([rho_variable[StI(index)] for index in indices_A1q1a2q2_ext])
+            lhs = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_A1q1a2q2_ext])
 
-            rhs_variable = sum([rho_variable[StI(index)] for index in indices_A1Q1a2q2_ext])
+            rhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_A1Q1a2q2_ext])
             rhs_partial = partial_trace(rhs_variable, sub_dim)
             rhs = probQ1[q1] * cp.kron(rhoT, rhs_partial)
 
@@ -418,10 +436,10 @@ def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A
             indices_a1q1A2q2_ext = [np.append(index_else,np.array([a2,q2])) for a2 in range(dimA2)]
             indices_a1q1A2Q2_ext = [np.append(index_else,index_A2Q2) for index_A2Q2 in indices_A2Q2]
 
-            lhs_variable = sum([rho_variable[StI(index)] for index in indices_a1q1A2q2_ext])
+            lhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_a1q1A2q2_ext])
             lhs = cp.matmul( cp.matmul( P , lhs_variable ) , P.T )
 
-            rhs_variable = sum([rho_variable[StI(index)] for index in indices_a1q1A2Q2_ext])
+            rhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_a1q1A2Q2_ext])
             rhs_permuted = cp.matmul( cp.matmul( P , rhs_variable ) , P.T )
             rhs_partial = partial_trace(rhs_permuted, sub_dim)
             rhs = probQ2[q2] * cp.kron(rhoT,rhs_partial)
