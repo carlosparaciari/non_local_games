@@ -42,17 +42,20 @@ def tensor(array_list):
 #
 def fuse_arrays(v,w):
     
-    if w.size != 0:
-        fused_vw = np.empty((0,v.shape[1]+w.shape[1]))
-        broadcast_shape = (w.shape[0],v.shape[1])
-
-        for subv in v:
-            broad_suv = np.broadcast_to(subv,broadcast_shape)
-            fused_vw = np.vstack((fused_vw,np.hstack((broad_suv,w))))
-
-        return fused_vw
-    else:
+    if v.size == 0:
+        return w
+    
+    if w.size == 0:
         return v
+    
+    fused_vw = np.empty((0,v.shape[1]+w.shape[1]))
+    broadcast_shape = (w.shape[0],v.shape[1])
+
+    for subv in v:
+        broad_suv = np.broadcast_to(subv,broadcast_shape)
+        fused_vw = np.vstack((fused_vw,np.hstack((broad_suv,w))))
+
+    return fused_vw
 
 # This function returns the unnormalized bipartite maximally entangled state of dimension dim.
 #
@@ -325,6 +328,106 @@ def rule_matrix(dimensionAQ, rule_function):
             
     return V
 
+# This function implements the linear constraint for Alice side
+#
+#    INPUT:
+#          - rho_variable: Variable matrix for the constraints
+#          - probQ1: probability distribution over the questions Alice receives
+#          - constraints: constraints list
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#          - subs_A1Q1: the subsystem of answers and questions for Alice
+#          - subs_A2Q2: the subsystem of answers and questions for Bob
+#          - dimT: assisting dimension
+#          - dimS: assisting dimension
+#
+def linear_constraint_Alice(rho_variable,probQ1,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,StI):
+
+    # Extract dimension A1 and Q1
+    dimA1,dimQ1 = subs_A1Q1
+
+    # Create dimension tuple
+    sub_dim = (dimT, dimT**(n1+n2-1)*dimS**2)
+    
+    # Maximally mixed state on T
+    rhoT = np.identity(dimT)/dimT
+
+    # Create the relevant set of indices
+    indices_A1Q1 = indices_list(subs_A1Q1)
+    indices_A1Q1_ext_butone = indices_list(subs_A1Q1*(n1-1))
+    indices_A2Q2_ext = indices_list(subs_A2Q2*n2)
+    indices_everything_but_A1Q1 = fuse_arrays(indices_A1Q1_ext_butone,indices_A2Q2_ext)
+
+    for q1 in range(dimQ1):
+        for index_else in indices_everything_but_A1Q1:
+            indices_A1q1a2q2_ext = [np.append(np.array([a1,q1]),index_else) for a1 in range(dimA1)]
+            indices_A1Q1a2q2_ext = [np.append(index_A1Q1,index_else) for index_A1Q1 in indices_A1Q1]
+
+            lhs = sum([rho_variable[StI(index)] for index in indices_A1q1a2q2_ext])
+
+            rhs_variable = sum([rho_variable[StI(index)] for index in indices_A1Q1a2q2_ext])
+            rhs_partial = partial_trace(rhs_variable, sub_dim)
+            rhs = probQ1[q1] * cp.kron(rhoT, rhs_partial)
+
+            constraints.append( lhs - rhs == 0 )
+
+# This function implements the linear constraint for Bob side
+#
+#    INPUT:
+#          - rho_variable: Variable matrix for the constraints
+#          - probQ2: probability distribution over the questions Bob receives
+#          - constraints: constraints list
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#          - subs_A1Q1: the subsystem of answers and questions for Alice
+#          - subs_A2Q2: the subsystem of answers and questions for Bob
+#          - dimT: assisting dimension
+#          - dimS: assisting dimension
+#
+def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,StI):
+    
+    # Extract dimension A2 and Q2
+    dimA2,dimQ2 = subs_A2Q2
+
+    # Permutation matrix (T1...Tn1)(T1...Tn2)(SS) -> (Tn2...T1)(T1...Tn1)(SS)
+    order = np.arange(n1+n2+2)
+
+    maskA = order[:n1]
+    maskB = np.flip(order[n1:n1+n2])
+    maskS = order[n1+n2:]
+    mask = np.concatenate((maskB,maskA,maskS))
+
+    subsys = (dimT,)*(n1+n2)+(dimS,)*2
+
+    P = cp.Constant(permutation_matrix(order, mask, subsys))
+
+    # Create dimension tuple
+    sub_dim = (dimT,dimT**(n1+n2-1)*dimS**2)
+
+    # Maximally mixed state on T
+    rhoT = np.identity(dimT)/dimT
+
+    # Create the relevant set of indices
+    indices_A1Q1_ext = indices_list(subs_A1Q1*n1)
+    indices_A2Q2 = indices_list(subs_A2Q2)
+    indices_A2Q2_ext_butone = indices_list(subs_A2Q2*(n2-1))
+    indices_everything_but_A2Q2 = fuse_arrays(indices_A1Q1_ext,indices_A2Q2_ext_butone)
+
+    for q2 in range(dimQ2):
+        for index_else in indices_everything_but_A2Q2:
+            indices_a1q1A2q2_ext = [np.append(index_else,np.array([a2,q2])) for a2 in range(dimA2)]
+            indices_a1q1A2Q2_ext = [np.append(index_else,index_A2Q2) for index_A2Q2 in indices_A2Q2]
+
+            lhs_variable = sum([rho_variable[StI(index)] for index in indices_a1q1A2q2_ext])
+            lhs = cp.matmul( cp.matmul( P , lhs_variable ) , P.T )
+
+            rhs_variable = sum([rho_variable[StI(index)] for index in indices_a1q1A2Q2_ext])
+            rhs_permuted = cp.matmul( cp.matmul( P , rhs_variable ) , P.T )
+            rhs_partial = partial_trace(rhs_permuted, sub_dim)
+            rhs = probQ2[q2] * cp.kron(rhoT,rhs_partial)
+
+            constraints.append( lhs - rhs == 0 )
+            
 # This function creates PPT constraints along all the following cuts T_1 | ... | T_n1 | T_1 | ...| T_n2 | SS
 #
 #    INPUT:
