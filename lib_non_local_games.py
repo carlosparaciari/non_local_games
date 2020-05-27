@@ -445,7 +445,108 @@ def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A
             rhs = probQ2[q2] * cp.kron(rhoT,rhs_partial)
 
             constraints.append( lhs - rhs == 0 )
-            
+
+# This function permutes the indices according to a given permutation
+#
+# The expected order of the index is A1_1 ... A1_n1 Q1_1 ... Q1_n1 A2_1 ... A2_n2 Q2_1 ... Q2_n1
+#
+#     INPUT:
+#           - index: the index to be permuted
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - final_order_Alice: the new order for Alice's indices
+#           - final_order_Bob: the new order for Bob's indices
+#
+#     OUTPUT:
+#           - permuted_index : the array of indices permuted
+#
+def permute_index(index,n1,n2,final_order_Alice,final_order_Bob):
+
+    permuted_index = np.empty(index.shape,dtype=index.dtype)
+
+    for i,j in enumerate(final_order_Alice):
+        permuted_index[i] = index[j] # permuting Alice answers (the a1's)
+        permuted_index[n1+i] = index[n1+j] # permuting Alice questions(the q1's)
+
+    for i,j in enumerate(final_order_Bob):
+        permuted_index[2*n1+i] = index[2*n1+j] # permuting Bob answers (the a2's)
+        permuted_index[2*n1+n2+i] = index[2*n1+n2+j] # permuting Bob questions(the q2's)
+
+    return permuted_index
+
+# This function implements a single constraint coming from the permutation-invariariance of the state
+#
+#     INPUT:
+#           - rho_variable: array of 2D cvx matrix variables
+#           - constraints: array of constraints
+#           - order_Alice: the new order for Alice' subsystems
+#           - order_Bob: the new order for Bob' subsystems
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - subsys: dimension of the quanutm subsystems
+#           - StI: function mapping indices to integer
+#           - indices: list of classical indices of the variable
+#
+def permutation_constraint(rho_variable,constraints,order_Alice,order_Bob,n1,n2,subsys,StI,indices):
+
+    # Order for the quantum systems
+    init_order_qs = np.arange(n1+n2+2)
+    order_SS = np.arange(n1+n2,n1+n2+2)
+    fin_order_qs = np.concatenate( (order_Alice, order_Bob+n1, order_SS) )
+
+    # The permutation matrix swapping the quantum subsystems
+    P = permutation_matrix(init_order_qs, fin_order_qs, subsys)
+
+    # The permutation function for the classical indices
+    perm = lambda index : permute_index(index,n1,n2,order_Alice,order_Bob)
+
+    for index in indices:
+        lhs = rho_variable[StI(index)]
+
+        rhs_variable = rho_variable[StI(perm(index))]
+        rhs = cp.matmul(cp.matmul(P,rhs_variable),P.T)
+
+        constraints.append( lhs - rhs == 0 )
+        
+# This function implements the permutation-invariance constraints for Alice and Bob
+#
+#     INPUT:
+#           - rho_variable: array of 2D cvx matrix variables
+#           - constraints: array of constraints
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - subsys: dimension of the quanutm subsystems
+#           - StI: function mapping indices to integer
+#           - indices: list of classical indices of the variable
+#
+def full_permutation_constraints(rho_variable,constraints,n1,n2,subsys,StI,indices):
+
+    # Order for Alice and Bob subsystems
+    in_order_Alice = np.arange(n1)
+    in_order_Bob = np.arange(n2)
+
+    ## Permutations on Alice side
+
+    # Order for Bob subsystems (A2Q2T)_1 ... (A2Q2T)_n2 stays unchanged
+    fin_order_Bob = np.copy(in_order_Bob)
+
+    # All generators of symmetric group S_n1
+    for i in range(n1-1):
+        fin_order_Alice = np.copy(in_order_Alice)
+        fin_order_Alice[i],fin_order_Alice[i+1] = in_order_Alice[i+1],in_order_Alice[i]
+        permutation_constraint(rho_variable,constraints,fin_order_Alice,fin_order_Bob,n1,n2,subsys,StI,indices)
+
+    ## Permutations on Bob side
+
+    # Order for Alice subsystems (A1Q1T)_1 ... (A1Q1T)_n1 stays unchanged
+    fin_order_Alice = np.copy(in_order_Alice)
+
+    # All generators of symmetric group S_n2
+    for i in range(n2-1):
+        fin_order_Bob = np.copy(in_order_Bob)
+        fin_order_Bob[i],fin_order_Bob[i+1] = in_order_Bob[i+1],in_order_Bob[i]
+        permutation_constraint(rho_variable,constraints,fin_order_Alice,fin_order_Bob,n1,n2,subsys,StI,indices)
+    
 # This function creates PPT constraints along all the following cuts T_1 | ... | T_n1 | T_1 | ...| T_n2 | SS
 #
 #    INPUT:
