@@ -446,6 +446,7 @@ def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A
 
             constraints.append( lhs - rhs == 0 )
 
+<<<<<<< HEAD
 
 # This function constructs the first level NPA constraint in terms of the opmisation variable(rho_variable)
 #
@@ -563,6 +564,8 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
     constraints.append( M >> 0 )
     constraints.append( M - M.T == 0 )
 
+=======
+>>>>>>> 0fa2953d00b7382d2429d52d604b60132ac1054a
 # This function permutes the indices according to a given permutation
 #
 # The expected order of the index is A1_1 ... A1_n1 Q1_1 ... Q1_n1 A2_1 ... A2_n2 Q2_1 ... Q2_n1
