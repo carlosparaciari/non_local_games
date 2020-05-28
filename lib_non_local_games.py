@@ -42,17 +42,20 @@ def tensor(array_list):
 #
 def fuse_arrays(v,w):
     
-    if w.size != 0:
-        fused_vw = np.empty((0,v.shape[1]+w.shape[1]))
-        broadcast_shape = (w.shape[0],v.shape[1])
-
-        for subv in v:
-            broad_suv = np.broadcast_to(subv,broadcast_shape)
-            fused_vw = np.vstack((fused_vw,np.hstack((broad_suv,w))))
-
-        return fused_vw
-    else:
+    if v.size == 0:
+        return w
+    
+    if w.size == 0:
         return v
+    
+    fused_vw = np.empty((0,v.shape[1]+w.shape[1]))
+    broadcast_shape = (w.shape[0],v.shape[1])
+
+    for subv in v:
+        broad_suv = np.broadcast_to(subv,broadcast_shape)
+        fused_vw = np.vstack((fused_vw,np.hstack((broad_suv,w))))
+
+    return fused_vw
 
 # This function returns the unnormalized bipartite maximally entangled state of dimension dim.
 #
@@ -325,6 +328,342 @@ def rule_matrix(dimensionAQ, rule_function):
             
     return V
 
+# This function reorders the index in the following way
+#
+# From (A1Q1)_1 ... (A1Q1)_n1 (A2Q2)_1 ... (A2Q2)_n2
+# To   (A1_1 ... A1_n1)(Q1_1 ... Q1_n1)(A2_1 ... A2_n2)(Q2_1 ... Q2_n2)
+#
+#    INPUT:
+#          - index: the numpy array with the index
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#
+def reorder_index(index,n1,n2):
+    indexA1 = index[0:2*n1-1:2]
+    indexQ1 = index[1:2*n1:2]
+    indexA2 = index[2*n1:2*(n1+n2)-1:2]
+    indexQ2 = index[2*n1+1:2*(n1+n2):2]
+
+    return np.concatenate((indexA1,indexQ1,indexA2,indexQ2))
+
+# This function implements the linear constraint for Alice side
+#
+#    INPUT:
+#          - rho_variable: Variable matrix for the constraints
+#          - probQ1: probability distribution over the questions Alice receives
+#          - constraints: constraints list
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#          - subs_A1Q1: the subsystem of answers and questions for Alice
+#          - subs_A2Q2: the subsystem of answers and questions for Bob
+#          - dimT: assisting dimension
+#          - dimS: assisting dimension
+#
+def linear_constraint_Alice(rho_variable,probQ1,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,StI):
+
+    # Extract dimension A1 and Q1
+    dimA1,dimQ1 = subs_A1Q1
+
+    # Create dimension tuple
+    sub_dim = (dimT, dimT**(n1+n2-1)*dimS**2)
+    
+    # Maximally mixed state on T
+    rhoT = np.identity(dimT)/dimT
+
+    # Create the relevant set of indices
+    indices_A1Q1 = indices_list(subs_A1Q1)
+    indices_A1Q1_ext_butone = indices_list(subs_A1Q1*(n1-1))
+    indices_A2Q2_ext = indices_list(subs_A2Q2*n2)
+    indices_everything_but_A1Q1 = fuse_arrays(indices_A1Q1_ext_butone,indices_A2Q2_ext)
+
+    for q1 in range(dimQ1):
+        for index_else in indices_everything_but_A1Q1:
+            indices_A1q1a2q2_ext = [np.append(np.array([a1,q1]),index_else) for a1 in range(dimA1)]
+            indices_A1Q1a2q2_ext = [np.append(index_A1Q1,index_else) for index_A1Q1 in indices_A1Q1]
+
+            lhs = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_A1q1a2q2_ext])
+
+            rhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_A1Q1a2q2_ext])
+            rhs_partial = partial_trace(rhs_variable, sub_dim)
+            rhs = probQ1[q1] * cp.kron(rhoT, rhs_partial)
+
+            constraints.append( lhs - rhs == 0 )
+
+# This function implements the linear constraint for Bob side
+#
+#    INPUT:
+#          - rho_variable: Variable matrix for the constraints
+#          - probQ2: probability distribution over the questions Bob receives
+#          - constraints: constraints list
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#          - subs_A1Q1: the subsystem of answers and questions for Alice
+#          - subs_A2Q2: the subsystem of answers and questions for Bob
+#          - dimT: assisting dimension
+#          - dimS: assisting dimension
+#
+def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,StI):
+    
+    # Extract dimension A2 and Q2
+    dimA2,dimQ2 = subs_A2Q2
+
+    # Permutation matrix (T1...Tn1)(T1...Tn2)(SS) -> (Tn2...T1)(T1...Tn1)(SS)
+    order = np.arange(n1+n2+2)
+
+    maskA = order[:n1]
+    maskB = np.flip(order[n1:n1+n2])
+    maskS = order[n1+n2:]
+    mask = np.concatenate((maskB,maskA,maskS))
+
+    subsys = (dimT,)*(n1+n2)+(dimS,)*2
+
+    P = cp.Constant(permutation_matrix(order, mask, subsys))
+
+    # Create dimension tuple
+    sub_dim = (dimT,dimT**(n1+n2-1)*dimS**2)
+
+    # Maximally mixed state on T
+    rhoT = np.identity(dimT)/dimT
+
+    # Create the relevant set of indices
+    indices_A1Q1_ext = indices_list(subs_A1Q1*n1)
+    indices_A2Q2 = indices_list(subs_A2Q2)
+    indices_A2Q2_ext_butone = indices_list(subs_A2Q2*(n2-1))
+    indices_everything_but_A2Q2 = fuse_arrays(indices_A1Q1_ext,indices_A2Q2_ext_butone)
+
+    for q2 in range(dimQ2):
+        for index_else in indices_everything_but_A2Q2:
+            indices_a1q1A2q2_ext = [np.append(index_else,np.array([a2,q2])) for a2 in range(dimA2)]
+            indices_a1q1A2Q2_ext = [np.append(index_else,index_A2Q2) for index_A2Q2 in indices_A2Q2]
+
+            lhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_a1q1A2q2_ext])
+            lhs = cp.matmul( cp.matmul( P , lhs_variable ) , P.T )
+
+            rhs_variable = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_a1q1A2Q2_ext])
+            rhs_permuted = cp.matmul( cp.matmul( P , rhs_variable ) , P.T )
+            rhs_partial = partial_trace(rhs_permuted, sub_dim)
+            rhs = probQ2[q2] * cp.kron(rhoT,rhs_partial)
+
+            constraints.append( lhs - rhs == 0 )
+
+
+# This function constructs the first level NPA constraint in terms of the opmisation variable(rho_variable)
+#
+#    INPUT:
+#          - rho_variable: Variable matrix for the constraints
+#          - constraints: constraints list
+#          - n1: extension for T
+#          - n2: extension for \hat{T}
+#          - subs_A1Q1: the subsystem of answers and questions for Alice
+#          - subs_A2Q2: the subsystem of answers and questions for Bob
+#          - dimT: assisting dimension
+#          - dimS: assisting dimension
+#          - probQ1: probability distribution over the questions Alice receives
+#          - probQ2: probability distribution over the questions Bob receives
+#          - proj: assuming the projective measurement (1) or not (0)
+#
+def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,probQ1,probQ2,StI,proj=1):
+    # NPA style constraint (see PhysRevLett.98.010401)
+    
+    # Create the lists of indices we need
+    indices_A1Q1 = indices_list(subs_A1Q1)
+    indices_A2Q2 = indices_list(subs_A2Q2)
+    indices_A1Q1A2Q2 = indices_list(subs_A1Q1+subs_A2Q2)
+    indices_everything_but_A1Q1 = indices_list(subs_A1Q1*(n1-1)+subs_A2Q2*n2)
+    indices_everything_but_A2Q2 = indices_list(subs_A1Q1*n1+subs_A2Q2*(n2-1))
+    indices_everything_but_A1Q1A2Q2 = indices_list(subs_A1Q1*(n1-1)+subs_A2Q2*(n2-1))
+    subs_T1_n1_T2_n2_SS = [dimT]*(n1+n2)+[dimS,dimS]
+    
+    # Create the Phi operator in the objective function
+    index1 = [i for i in range(n1+n2+2)]
+    index2 = [n1+n2]+[i+1 for i in range(n1-1)]+[n1+n2+1]+[i+n1+1 for i in range(n2-1)]+[0,n1]
+    F_T1_n1_T2_n2_SS = cp.Constant(permutation_matrix(index1, index2, subs_T1_n1_T2_n2_SS))
+    Phi_T1_n1_T2_n2_SS = partial_transpose(F_T1_n1_T2_n2_SS, subs_T1_n1_T2_n2_SS, [0]*(n1+n2)+[1,1])
+    
+    # Introduce the normalization factor
+    renorm = lambda x,y : dimT**2/(probQ1[x]*probQ2[y])
+    
+    # The P matrix containing the information about the variables rho_variable is give by
+    P = []
+    
+    if n1==1 & n2==1:
+        for a1,q1 in indices_A1Q1:
+            P_row = [renorm(q1,q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI([a1,q1,a2,q2])]) for a2,q2 in indices_A2Q2]
+            P.append(P_row)
+    else:
+        for a1,q1 in indices_A1Q1:
+            P_row = [renorm(q1,q2)*cp.trace(sum([Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.concatenate(([a1,q1],i,[a2,q2])),n1,n2))] for i in indices_everything_but_A1Q1A2Q2])) for a2,q2 in indices_A2Q2]
+            P.append(P_row)
+    
+    P = cp.bmat(P)
+    
+    # The Q matrix containing the information about the variables rho_variable and also some new variables
+    Q = []
+    
+    for a1,q1 in indices_A1Q1:
+        Q_row = []
+        for a1p,q1p in indices_A1Q1:
+            if q1 == q1p:
+                if a1 == a1p:
+                    val = sum([renorm(q1,i[2*n1-1])*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append([a1,q1],i),n1,n2))])
+                               for i in indices_everything_but_A1Q1])/subs_A2Q2[1]
+                else:
+                    if proj == 1:
+                        val = cp.Constant(0) # Assume projective measurements.
+                    else:
+                        val = cp.Variable() # Otherwise, just new variable
+            else:
+                val = cp.Variable()
+            Q_row.append(val)
+        Q.append(Q_row)
+    
+    Q = cp.bmat(Q)
+    
+    # The R matrix containing the information about the variables rho_TTSS and also some new variables
+    R = []
+    
+    for a2,q2 in indices_A2Q2:
+        R_row = []
+        for a2p,q2p in indices_A2Q2:
+            if q2 == q2p:
+                if a2 == a2p:
+                    val = sum([renorm(i[1],q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append(i,[a2,q2]),n1,n2))])
+                               for i in indices_everything_but_A2Q2])/subs_A1Q1[1]
+                else:
+                    if proj == 1:
+                        val = cp.Constant(0) # Assume projective measurements.
+                    else:
+                        val = cp.Variable() # Otherwise, just new variable
+            else:
+                val = cp.Variable()
+            R_row.append(val)
+        R.append(R_row)
+    
+    R = cp.bmat(R)
+    
+    # Constructing vector v of dimension dimA1*dimQ1+dimA2*dimQ2
+    v = []
+    
+    for a1,q1 in indices_A1Q1:
+        v.append(sum([renorm(q1,i[2*n1-1])*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append([a1,q1],i),n1,n2))])
+                      for i in indices_everything_but_A1Q1])/subs_A2Q2[1])
+        
+    for a2,q2 in indices_A2Q2:
+        v.append(sum([renorm(i[1],q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append(i,[a2,q2]),n1,n2))])
+                      for i in indices_everything_but_A2Q2])/subs_A1Q1[1])
+        
+    v = cp.bmat([v])
+    w = cp.vstack([cp.Constant([[1]]),v.T])
+    
+    # Builiding the matrix M that should be positive semi-definite (NPA constraint)
+    M = cp.vstack([cp.hstack([Q,P]),cp.hstack([P.T,R])])
+    M = cp.vstack([v,M])
+    M = cp.hstack([w,M])
+          
+    constraints.append( M >> 0 )
+    constraints.append( M - M.T == 0 )
+
+# This function permutes the indices according to a given permutation
+#
+# The expected order of the index is A1_1 ... A1_n1 Q1_1 ... Q1_n1 A2_1 ... A2_n2 Q2_1 ... Q2_n1
+#
+#     INPUT:
+#           - index: the index to be permuted
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - final_order_Alice: the new order for Alice's indices
+#           - final_order_Bob: the new order for Bob's indices
+#
+#     OUTPUT:
+#           - permuted_index : the array of indices permuted
+#
+def permute_index(index,n1,n2,final_order_Alice,final_order_Bob):
+
+    permuted_index = np.empty(index.shape,dtype=index.dtype)
+
+    for i,j in enumerate(final_order_Alice):
+        permuted_index[i] = index[j] # permuting Alice answers (the a1's)
+        permuted_index[n1+i] = index[n1+j] # permuting Alice questions(the q1's)
+
+    for i,j in enumerate(final_order_Bob):
+        permuted_index[2*n1+i] = index[2*n1+j] # permuting Bob answers (the a2's)
+        permuted_index[2*n1+n2+i] = index[2*n1+n2+j] # permuting Bob questions(the q2's)
+
+    return permuted_index
+
+# This function implements a single constraint coming from the permutation-invariariance of the state
+#
+#     INPUT:
+#           - rho_variable: array of 2D cvx matrix variables
+#           - constraints: array of constraints
+#           - order_Alice: the new order for Alice' subsystems
+#           - order_Bob: the new order for Bob' subsystems
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - subsys: dimension of the quanutm subsystems
+#           - StI: function mapping indices to integer
+#           - indices: list of classical indices of the variable
+#
+def permutation_constraint(rho_variable,constraints,order_Alice,order_Bob,n1,n2,subsys,StI,indices):
+
+    # Order for the quantum systems
+    init_order_qs = np.arange(n1+n2+2)
+    order_SS = np.arange(n1+n2,n1+n2+2)
+    fin_order_qs = np.concatenate( (order_Alice, order_Bob+n1, order_SS) )
+
+    # The permutation matrix swapping the quantum subsystems
+    P = permutation_matrix(init_order_qs, fin_order_qs, subsys)
+
+    # The permutation function for the classical indices
+    perm = lambda index : permute_index(index,n1,n2,order_Alice,order_Bob)
+
+    for index in indices:
+        lhs = rho_variable[StI(index)]
+
+        rhs_variable = rho_variable[StI(perm(index))]
+        rhs = cp.matmul(cp.matmul(P,rhs_variable),P.T)
+
+        constraints.append( lhs - rhs == 0 )
+        
+# This function implements the permutation-invariance constraints for Alice and Bob
+#
+#     INPUT:
+#           - rho_variable: array of 2D cvx matrix variables
+#           - constraints: array of constraints
+#           - n1: number of subsystems for Alice
+#           - n2: number of subsystems for Bob
+#           - subsys: dimension of the quanutm subsystems
+#           - StI: function mapping indices to integer
+#           - indices: list of classical indices of the variable
+#
+def full_permutation_constraints(rho_variable,constraints,n1,n2,subsys,StI,indices):
+
+    # Order for Alice and Bob subsystems
+    in_order_Alice = np.arange(n1)
+    in_order_Bob = np.arange(n2)
+
+    ## Permutations on Alice side
+
+    # Order for Bob subsystems (A2Q2T)_1 ... (A2Q2T)_n2 stays unchanged
+    fin_order_Bob = np.copy(in_order_Bob)
+
+    # All generators of symmetric group S_n1
+    for i in range(n1-1):
+        fin_order_Alice = np.copy(in_order_Alice)
+        fin_order_Alice[i],fin_order_Alice[i+1] = in_order_Alice[i+1],in_order_Alice[i]
+        permutation_constraint(rho_variable,constraints,fin_order_Alice,fin_order_Bob,n1,n2,subsys,StI,indices)
+
+    ## Permutations on Bob side
+
+    # Order for Alice subsystems (A1Q1T)_1 ... (A1Q1T)_n1 stays unchanged
+    fin_order_Alice = np.copy(in_order_Alice)
+
+    # All generators of symmetric group S_n2
+    for i in range(n2-1):
+        fin_order_Bob = np.copy(in_order_Bob)
+        fin_order_Bob[i],fin_order_Bob[i+1] = in_order_Bob[i+1],in_order_Bob[i]
+        permutation_constraint(rho_variable,constraints,fin_order_Alice,fin_order_Bob,n1,n2,subsys,StI,indices)
+    
 # This function creates PPT constraints along all the following cuts T_1 | ... | T_n1 | T_1 | ...| T_n2 | SS
 #
 #    INPUT:
