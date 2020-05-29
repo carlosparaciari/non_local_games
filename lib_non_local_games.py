@@ -775,24 +775,19 @@ def classical_constraints(constraints,subs_A1Q1,subs_A2Q2,probQ1,probQ2,level=1)
     for index_A1Q1 in indices_A1Q1:
         for index_A2Q2_ext in indices_A2Q2_extended:
             index_A1Q1A2Q2_ext = np.append(index_A1Q1,index_A2Q2_ext)
+            
+            for i in range(level-1):
+                index_A2Q2_ext_perm = np.copy(index_A2Q2_ext)
+                
+                # Re-arrange answers and questions
+                index_A2Q2_ext_perm[2*i],index_A2Q2_ext_perm[2*(i+1)] = index_A2Q2_ext[2*(i+1)],index_A2Q2_ext[2*i]
+                index_A2Q2_ext_perm[2*i+1],index_A2Q2_ext_perm[2*i+3] = index_A2Q2_ext[2*i+3],index_A2Q2_ext[2*i+1]
+                
+                index_A1Q1A2Q2_perm = np.append(index_A1Q1,index_A2Q2_ext_perm)
 
-            # Create all possible permutations (of the blocks A2Q2)
-            block_shape = (int(index_A2Q2_ext.size/2),2)
-            index_A2Q2_block = np.reshape(index_A2Q2_ext,block_shape).tolist()
-            permutation_list = list(permutations(index_A2Q2_block))
-            permutation_array = np.array(permutation_list)
-            unblock_shape = (permutation_array.shape[0],permutation_array.shape[1]*permutation_array.shape[2])
-            indices_A2Q2_perm = np.unique(np.reshape(permutation_array,unblock_shape),axis=0)
-
-            for index_A2Q2_perm in indices_A2Q2_perm:
-
-                if (index_A2Q2_perm == index_A2Q2_ext).all():
-                    continue
-                else:
-                    index_A1Q1A2Q2_perm = np.append(index_A1Q1,index_A2Q2_perm)
-                    rhs = classical_prob[BtI_ext(index_A1Q1A2Q2_ext)]
-                    lhs = classical_prob[BtI_ext(index_A1Q1A2Q2_perm)]
-                    constraints.append( rhs - lhs == 0 )
+                rhs = classical_prob[BtI_ext(index_A1Q1A2Q2_ext)]
+                lhs = classical_prob[BtI_ext(index_A1Q1A2Q2_perm)]
+                constraints.append( rhs - lhs == 0 )
 
     # iii) Non-signalling A
     for q1 in range(dimQ1):
