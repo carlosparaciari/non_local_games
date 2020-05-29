@@ -446,7 +446,42 @@ def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A
 
             constraints.append( lhs - rhs == 0 )
 
+# This function provides the reduced variable on the classical space A1Q1A2Q2 and on the quantum space TTSS
+#
+#    INPUT:
+#          - rho_variable: 2D cvxpy matrix variable
+#          - a1,q1,a2,q2: the coordinate of the classical space A1Q1A2Q2
+#          - n1: extension for Alice
+#          - n2: extension for Bob
+#          - dimT: dimension quantum assistance
+#          - dimS: copy of the dimension assistance
+#          - StI: function mapping indices to integer
+#          - indices_but_A1Q1A2Q2: list of classical indices for the extension
+#
+#    OUTPUT:
+#          - rho_A1Q1A2Q2: reduced variable
+#
+def rho_reduced(rho_variable,a1,q1,a2,q2,n1,n2,dimT,dimS,StI,indices_but_A1Q1A2Q2):
+    
+    # Build the indices for the extended state
+    index_A1Q1 = np.array([[a1,q1]])
+    index_A2Q2 = np.array([[a2,q2]])
+    
+    indices_but_A2Q2 = fuse_arrays(index_A1Q1,indices_but_A1Q1A2Q2)
+    indices_A1Q1A2Q2_ext = fuse_arrays(indices_but_A2Q2,index_A2Q2)
+    
+    # Reduce the classical part
+    rho_A1Q1A2Q2 = sum([rho_variable[StI(reorder_index(index,n1,n2))] for index in indices_A1Q1A2Q2_ext])
+    
+    # Reduce the quanutm part
+    if n1!=1 or n2!=1:
+        dim_subsys = (dimT,dimT**(n1+n2-2),dimT*dimS**2)
+        rho_A1Q1A2Q2 = partial_trace(rho_A1Q1A2Q2, dim_subsys, axis=1)
+    
+    return rho_A1Q1A2Q2
+            
 # This function constructs the first level NPA constraint in terms of the opmisation variable(rho_variable)
+# NPA style constraint (see PhysRevLett.98.010401)
 #
 #    INPUT:
 #          - rho_variable: Variable matrix for the constraints
@@ -459,25 +494,28 @@ def linear_constraint_Bob(rho_variable,probQ2,constraints,n1,n2,subs_A1Q1,subs_A
 #          - dimS: assisting dimension
 #          - probQ1: probability distribution over the questions Alice receives
 #          - probQ2: probability distribution over the questions Bob receives
-#          - proj: assuming the projective measurement (1) or not (0)
+#          - proj: boolean variable on assuming projective measurements
 #
-def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,probQ1,probQ2,StI,proj=1):
-    # NPA style constraint (see PhysRevLett.98.010401)
+def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS,probQ1,probQ2,StI,proj=True):
     
     # Create the lists of indices we need
     indices_A1Q1 = indices_list(subs_A1Q1)
     indices_A2Q2 = indices_list(subs_A2Q2)
-    indices_A1Q1A2Q2 = indices_list(subs_A1Q1+subs_A2Q2)
-    indices_everything_but_A1Q1 = indices_list(subs_A1Q1*(n1-1)+subs_A2Q2*n2)
-    indices_everything_but_A2Q2 = indices_list(subs_A1Q1*n1+subs_A2Q2*(n2-1))
-    indices_everything_but_A1Q1A2Q2 = indices_list(subs_A1Q1*(n1-1)+subs_A2Q2*(n2-1))
-    subs_T1_n1_T2_n2_SS = [dimT]*(n1+n2)+[dimS,dimS]
+    indices_but_A1Q1A2Q2 = indices_list(subs_A1Q1*(n1-1)+subs_A2Q2*(n2-1))
+    subs_TTSS = (dimT,dimT,dimS,dimS)
+    _,dimQ1 = subs_A1Q1
+    _,dimQ2 = subs_A2Q2
     
-    # Create the Phi operator in the objective function
-    index1 = [i for i in range(n1+n2+2)]
-    index2 = [n1+n2]+[i+1 for i in range(n1-1)]+[n1+n2+1]+[i+n1+1 for i in range(n2-1)]+[0,n1]
-    F_T1_n1_T2_n2_SS = cp.Constant(permutation_matrix(index1, index2, subs_T1_n1_T2_n2_SS))
-    Phi_T1_n1_T2_n2_SS = partial_transpose(F_T1_n1_T2_n2_SS, subs_T1_n1_T2_n2_SS, [0]*(n1+n2)+[1,1])
+    # Function to reduce the cvx variable
+    rho_var = lambda a1,q1,a2,q2 : rho_reduced(rho_variable,a1,q1,a2,q2,n1,n2,dimT,dimS,StI,indices_but_A1Q1A2Q2)
+    
+    # Create the Phi operator for the objective function
+    in_order = np.arange(4)
+    fin_order = (2,3,0,1)
+    mask = (0,0,1,1)
+    
+    F_TTSS = cp.Constant(permutation_matrix(in_order, fin_order, subs_TTSS))
+    Phi_TTSS = partial_transpose(F_TTSS, subs_TTSS, (0,0,1,1))
     
     # Introduce the normalization factor
     renorm = lambda x,y : dimT**2/(probQ1[x]*probQ2[y])
@@ -485,14 +523,9 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
     # The P matrix containing the information about the variables rho_variable is give by
     P = []
     
-    if n1==1 & n2==1:
-        for a1,q1 in indices_A1Q1:
-            P_row = [renorm(q1,q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI([a1,q1,a2,q2])]) for a2,q2 in indices_A2Q2]
-            P.append(P_row)
-    else:
-        for a1,q1 in indices_A1Q1:
-            P_row = [renorm(q1,q2)*cp.trace(sum([Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.concatenate(([a1,q1],i,[a2,q2])),n1,n2))] for i in indices_everything_but_A1Q1A2Q2])) for a2,q2 in indices_A2Q2]
-            P.append(P_row)
+    for a1,q1 in indices_A1Q1:
+        P_row = [renorm(q1,q2)*cp.trace( Phi_TTSS@rho_var(a1,q1,a2,q2) ) for a2,q2 in indices_A2Q2]
+        P.append(P_row)
     
     P = cp.bmat(P)
     
@@ -504,10 +537,9 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
         for a1p,q1p in indices_A1Q1:
             if q1 == q1p:
                 if a1 == a1p:
-                    val = sum([renorm(q1,i[2*n1-1])*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append([a1,q1],i),n1,n2))])
-                               for i in indices_everything_but_A1Q1])/subs_A2Q2[1]
+                    val = sum([renorm(q1,q2)*cp.trace(Phi_TTSS@rho_var(a1,q1,a2,q2)) for a2,q2 in indices_A2Q2])/dimQ2
                 else:
-                    if proj == 1:
+                    if proj:
                         val = cp.Constant(0) # Assume projective measurements.
                     else:
                         val = cp.Variable() # Otherwise, just new variable
@@ -518,7 +550,7 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
     
     Q = cp.bmat(Q)
     
-    # The R matrix containing the information about the variables rho_TTSS and also some new variables
+    # The R matrix containing the information about the variables rho_variable and also some new variables
     R = []
     
     for a2,q2 in indices_A2Q2:
@@ -526,10 +558,9 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
         for a2p,q2p in indices_A2Q2:
             if q2 == q2p:
                 if a2 == a2p:
-                    val = sum([renorm(i[1],q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append(i,[a2,q2]),n1,n2))])
-                               for i in indices_everything_but_A2Q2])/subs_A1Q1[1]
+                    val = sum([renorm(q1,q2)*cp.trace(Phi_TTSS@rho_var(a1,q1,a2,q2)) for a1,q1 in indices_A1Q1])/dimQ1
                 else:
-                    if proj == 1:
+                    if proj:
                         val = cp.Constant(0) # Assume projective measurements.
                     else:
                         val = cp.Variable() # Otherwise, just new variable
@@ -544,12 +575,10 @@ def NPA1_constraint(rho_variable,constraints,n1,n2,subs_A1Q1,subs_A2Q2,dimT,dimS
     v = []
     
     for a1,q1 in indices_A1Q1:
-        v.append(sum([renorm(q1,i[2*n1-1])*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append([a1,q1],i),n1,n2))])
-                      for i in indices_everything_but_A1Q1])/subs_A2Q2[1])
+        v.append(sum([renorm(q1,q2)*cp.trace(Phi_TTSS@rho_var(a1,q1,a2,q2)) for a2,q2 in indices_A2Q2])/dimQ2)
         
     for a2,q2 in indices_A2Q2:
-        v.append(sum([renorm(i[1],q2)*cp.trace(Phi_T1_n1_T2_n2_SS@rho_variable[StI(reorder_index(np.append(i,[a2,q2]),n1,n2))])
-                      for i in indices_everything_but_A2Q2])/subs_A1Q1[1])
+        v.append(sum([renorm(q1,q2)*cp.trace(Phi_TTSS@rho_var(a1,q1,a2,q2)) for a1,q1 in indices_A1Q1])/dimQ1)
         
     v = cp.bmat([v])
     w = cp.vstack([cp.Constant([[1]]),v.T])
