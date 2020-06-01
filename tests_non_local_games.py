@@ -348,28 +348,3 @@ def test_rule_matrix_2A_2Q():
 
 	obtained_matrix_AQ = nlg.rule_matrix(dimensionAQ, rule)
 	np.testing.assert_allclose(obtained_matrix_AQ, expected_matrix_AQ)
-
-# ---------------- PPT CONSTRAINTS FUNCTION ----------------
-    
-def test_PPT_constraints():
-    
-    n1=1
-    n2=2
-    
-    subsys = (2,)*(n1+n2+2)
-    dim = fc.reduce(mul, subsys, 1)
-    state = cp.Variable(shape=(dim,dim))
-
-    constraints = []
-
-    obtained_PT_list = nlg.PPT_constraints(state,constraints,n1,n2,subsys)
-    expected_PT_list = [np.array([0, 1, 0, 0, 0]),
-                        np.array([1, 0, 0, 0, 0]),
-                        np.array([1, 1, 0, 0, 0]),
-                        np.array([0, 0, 1, 0, 0]),
-                        np.array([0, 1, 1, 0, 0]),
-                        np.array([1, 0, 1, 0, 0]),
-                        np.array([1, 1, 1, 0, 0])]
-    
-    for exp_PT, obt_PT in zip(expected_PT_list,obtained_PT_list):
-        np.testing.assert_allclose(exp_PT, obt_PT)
