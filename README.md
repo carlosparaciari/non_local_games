@@ -4,7 +4,7 @@
 
 Numerical implementation of the SDP relaxations introduced in the pre-print Hyejung H. Jee, et al, Characterising quantum correlations of fixed dimension (2020), available at this [link](https://arxiv.org/abs/2005.08883).
 
-The code showcasts the first levels of the SDP hierarchy. In particular, we give an explicit program for
+This [notebook](./code_examples.ipynb) showcasts the first levels of the SDP hierarchy. In particular, we give an explicit program for
 
 - CHSH game, levels (1,1), (2,1), (2,2), and (3,1)
 - I3322, level (3,3) with only PPT conditions.
